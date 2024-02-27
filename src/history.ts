@@ -1,6 +1,7 @@
 import RopeSequence from "rope-sequence"
 import {Mapping, Step, StepMap, Transform} from "prosemirror-transform"
 import {Plugin, Command, PluginKey, EditorState, Transaction, SelectionBookmark} from "prosemirror-state"
+import {schema} from "prosemirror-schema-basic"
 
 // ProseMirror's history isn't simply a way to roll back to a previous
 // state, because ProseMirror supports applying changes without adding
@@ -240,10 +241,18 @@ class Item {
   }
 }
 
+interface HistoryStateJSON {
+  done: any;
+  undone: any;
+  prevRanges: readonly number[] | null;
+  prevTime: number;
+  prevComposition: number;
+}
+
 // The value of the state field that tracks undo/redo history for that
 // state. Will be stored in the plugin state when the history plugin
 // is active.
-class HistoryState {
+export class HistoryState {
   constructor(
     readonly done: Branch,
     readonly undone: Branch,
@@ -251,6 +260,26 @@ class HistoryState {
     readonly prevTime: number,
     readonly prevComposition: number
   ) {}
+
+  toJSON(): HistoryStateJSON {
+    return {
+      done: JSON.parse(JSON.stringify(this.done)),
+      undone: JSON.parse(JSON.stringify(this.done)),
+      prevRanges: this.prevRanges,
+      prevTime: this.prevTime,
+      prevComposition: this.prevComposition
+    }
+  }
+
+  static fromJSON(json: any): HistoryState {
+    const doneItems: RopeSequence<Item> = RopeSequence.from(json.done.items.values.map((item: any) => {
+      const stepMap = new StepMap(item.map.ranges, item.map.inverted)
+      const step = Step.fromJSON(schema, item.step)
+      return new Item(stepMap, step, undefined, item.mirrorOffset)  // `selection` is purposely skipped
+    }))
+    const doneBranch = new Branch(doneItems, json.done.eventCount)
+    return new HistoryState(doneBranch, Branch.empty, json.prevRanges, json.prevTime, json.prevComposition) // `undone` is purposely skipped
+  }
 }
 
 const DEPTH_OVERFLOW = 20
@@ -378,6 +407,9 @@ interface HistoryOptions {
   /// started. Defaults to 500 (milliseconds). Note that when changes
   /// aren't adjacent, a new group is always started.
   newGroupDelay?: number
+
+  // The history state to use when the plugin is initialized.
+  historyState?: HistoryState
 }
 
 /// Returns a plugin that enables the undo history for an editor. The
@@ -396,6 +428,7 @@ export function history(config: HistoryOptions = {}): Plugin {
 
     state: {
       init() {
+        if (config.historyState) return config.historyState;
         return new HistoryState(Branch.empty, Branch.empty, null, 0, -1)
       },
       apply(tr, hist, state) {
@@ -433,6 +466,11 @@ export const redo: Command = (state, dispatch) => {
   if (!hist || hist.undone.eventCount == 0) return false
   if (dispatch) histTransaction(hist, state, dispatch, true)
   return true
+}
+
+/// A command function that return the HistoryState from the editor state
+export const getHistory: Command = (state, _) => {
+  return historyKey.getState(state)
 }
 
 /// The amount of undoable events available in a given state.
