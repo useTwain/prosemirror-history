@@ -468,11 +468,6 @@ export const redo: Command = (state, dispatch) => {
   return true
 }
 
-/// A command function that return the HistoryState from the editor state
-export const getHistory: Command = (state, _) => {
-  return historyKey.getState(state)
-}
-
 /// The amount of undoable events available in a given state.
 export function undoDepth(state: EditorState) {
   let hist = historyKey.getState(state)
@@ -483,4 +478,9 @@ export function undoDepth(state: EditorState) {
 export function redoDepth(state: EditorState) {
   let hist = historyKey.getState(state)
   return hist ? hist.undone.eventCount : 0
+}
+
+/// Ge the HistoryState from the editor state
+export function getHistory(state: EditorState) {
+  if (state) return historyKey.getState(state)
 }
